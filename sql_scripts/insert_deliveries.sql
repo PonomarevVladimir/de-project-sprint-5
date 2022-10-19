@@ -1,5 +1,8 @@
-with a as (select order_id, order_ts::timestamp, courier_id, cast(rate as int), cast(sum as numeric(14,2)), cast(tip_sum as numeric(14,2)) from stg.apisystem_deliveries) 
+with a as (select row_number() over (partition by load_table order by current_offset desc), current_offset as co  from stg.loads_check where load_table = 'apisystem_deliveries'),
+b as (select a.co from a where a.row_number = 2),
+c as (select row_number() over (), order_id, order_ts::timestamp, courier_id, cast(rate as int), cast(sum as numeric(14,2)), cast(tip_sum as numeric(14,2)), b.co from stg.apisystem_deliveries, b) 
 insert into dds.dm_deliveries (order_id, courier_id, time_id, rate, sum, tip) 
-select a.order_id, c.id, t.id, a.rate, a.sum, a.tip_sum from a 
-inner join (select id, courier_id from dds.dm_couriers) c on a.courier_id = c.courier_id 
-inner join (select id, ts from dds.dm_timestamps dt) t on a.order_ts = t.ts;
+select c.order_id, d.id, t.id, c.rate, c.sum, c.tip_sum from c
+inner join (select id, courier_id from dds.dm_couriers) d on c.courier_id = d.courier_id 
+inner join (select id, ts from dds.dm_timestamps dt) t on c.order_ts = t.ts
+where c.row_number > c.co;

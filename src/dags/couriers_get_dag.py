@@ -1,15 +1,12 @@
-import time
 import requests
 import json
 import pandas as pd
+import logging
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from airflow import DAG
-from airflow.operators.python_operator import PythonOperator, BranchPythonOperator
-from airflow.providers.postgres.operators.postgres import PostgresOperator
-from airflow.hooks.base import BaseHook
+from airflow.operators.python_operator import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from airflow.hooks.http_hook import HttpHook
 
 postgres_conn_id = 'postgresql_de'
 
@@ -23,14 +20,25 @@ headers = {
     'X-API-KEY': api_key
 }
 
-d_url = 'https://d5d04q7d963eapoepsqr.apigw.yandexcloud.net/couriers'
+d_url = 'https://d5d04q7d963eapoepsqr.apigw.yandexcloud.net/couriers?offset='
 
-def upload(url, headers,conn):
-    response= requests.get(url, headers=headers)
-    temp = response.content
-    temp = json.loads(temp)
-    df = pd.DataFrame(temp)
+def upload(url, headers, conn):
     pg_hook = PostgresHook(conn)
+    log = logging.getLogger('airflow.task')
+    offset=int(pg_hook.get_pandas_df(sql="select current_offset from stg.loads_check where load_table = 'apisystem_couriers' order by id desc;")['current_offset'].iloc[[0]])
+    log.info(offset)
+    df = pd.DataFrame()
+    while True:
+        response= requests.get(url+str(offset), headers=headers)
+        temp = response.content
+        temp = json.loads(temp)
+        df1 = pd.DataFrame(temp)
+        if df1.empty:
+            break
+        df = pd.concat([df,df1])
+        offset += df1.shape[0]
+        log.info(offset)
+    pg_hook.insert_rows(table='stg.loads_check', rows = [('apisystem_couriers', offset, 'new load')], target_fields = ['load_table', 'current_offset', 'load_comment'])
     pg_hook.insert_rows(table='stg.apisystem_couriers', rows = df.values.tolist(), target_fields = ['_id', 'name'])
 
 args = {
@@ -38,7 +46,7 @@ args = {
     'email': ['student@example.com'],
     'email_on_failure': False,
     'email_on_retry': False,
-    'retries': 0
+    'retries': 2
 }
 
 business_dt = '{{ ds }}'
@@ -48,6 +56,7 @@ with DAG(
         default_args=args,
         description='sprint5_project',
         start_date=datetime.today(),
+        schedule_interval='@daily',
         catchup=True,
         max_active_runs = 1,
 ) as dag:
