@@ -21,3 +21,5 @@ insert into cdm.dm_courier_ledger (courier_id, courier_name, settlement_year, se
 select a.c_id, a.courier_name, a.year, a.month, a.ord_count, a.ord_total_sum, a.rate, a.ord_proc_fee, a.cour_ord_sum, a.cour_tips_sum, a.cour_ord_sum+a.cour_tips_sum*0.95 from a 
 where year = extract(year from now()- interval '1 day') and
 month = extract(month from now()- interval '1 day');
+
+select * from cdm.dm_courier_ledger order by id desc limit 10;
